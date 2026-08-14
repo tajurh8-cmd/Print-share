@@ -25,3 +25,14 @@ self.addEventListener('fetch', event => {
       .catch(() => caches.match(event.request).then(r => r || caches.match('./index.html')))
   );
 });
+
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({type:'window', includeUncontrolled:true}).then(list => {
+      for(const c of list){ if('focus' in c) return c.focus(); }
+      if(clients.openWindow) return clients.openWindow('./');
+    })
+  );
+});

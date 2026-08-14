@@ -15,7 +15,7 @@
     <header class="bg-orange-500 text-white px-4 py-4 sticky top-0 z-20 shadow">
       <div class="max-w-5xl mx-auto flex items-center justify-between">
         <div><div class="font-bold text-xl">🖨️ Print Share</div><div class="text-xs text-orange-100">Antrean dokumen toko</div></div>
-        <button id="btnLogout" class="hidden bg-white/15 px-3 py-2 rounded-xl text-sm">Logout</button>
+        <div class="flex gap-2"><button id="btnAdmin" class="hidden bg-white/15 px-3 py-2 rounded-xl text-sm">Kelola Toko</button><button id="btnLogout" class="hidden bg-white/15 px-3 py-2 rounded-xl text-sm">Logout</button></div>
       </div>
     </header>
 
@@ -65,13 +65,32 @@
           <div id="historyList" class="mt-4 space-y-3"></div>
         </section>
       </section>
+
+      <section id="adminView" class="hidden max-w-3xl mx-auto space-y-4">
+        <div class="bg-white rounded-2xl p-5 card">
+          <div class="flex items-center justify-between gap-3">
+            <div><h2 class="font-bold text-xl">Kelola Toko</h2><p class="text-sm text-slate-500">Tambah akun toko tanpa membuka Firebase Console.</p></div>
+            <button id="btnBackApp" class="border px-3 py-2 rounded-xl text-sm">Kembali</button>
+          </div>
+          <div class="grid sm:grid-cols-2 gap-3 mt-5">
+            <input id="newStoreCode" class="border rounded-xl px-4 py-3 uppercase" placeholder="Kode toko, contoh B379" />
+            <input id="newStorePassword" type="password" class="border rounded-xl px-4 py-3" placeholder="Password min. 6 karakter" />
+          </div>
+          <button id="btnAddStore" class="w-full bg-orange-500 text-white font-semibold py-3 rounded-xl mt-3">Tambah Toko</button>
+          <div id="adminMsg" class="text-sm mt-3"></div>
+        </div>
+        <div class="bg-white rounded-2xl p-5 card">
+          <div class="flex items-center justify-between"><h3 class="font-bold text-lg">Daftar Toko</h3><span class="text-xs text-slate-400">B378 = Admin</span></div>
+          <div id="storeList" class="mt-4 space-y-3"></div>
+        </div>
+      </section>
     </main>
   </div>
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-import { getFirestore, doc, collection, addDoc, updateDoc, deleteDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { getFirestore, doc, collection, addDoc, updateDoc, deleteDoc, query, orderBy, onSnapshot, serverTimestamp, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBoUcM7tTZkjNnRmELDe_nxPuSJka4jbqE",
@@ -94,6 +113,8 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = id => document.getElementById(id);
 let unsubscribeJobs = null;
 let storeCodeCurrent = "";
+let unsubscribeStores = null;
+const ADMIN_EMAIL = "b378@printshare.app";
 
 function codeToEmail(code){ return `${code.trim().toLowerCase()}@printshare.app`; }
 function safeFileName(name){ return name.replace(/[^a-zA-Z0-9._-]/g, "_"); }
@@ -121,14 +142,86 @@ function friendlyError(e){
 
 onAuthStateChanged(auth, async user => {
   if(!user){
-    $('authView').classList.remove('hidden'); $('appView').classList.add('hidden'); $('btnLogout').classList.add('hidden');
-    if(unsubscribeJobs){unsubscribeJobs();unsubscribeJobs=null;} return;
+    $('authView').classList.remove('hidden'); $('appView').classList.add('hidden'); $('adminView').classList.add('hidden');
+    $('btnLogout').classList.add('hidden'); $('btnAdmin').classList.add('hidden');
+    if(unsubscribeJobs){unsubscribeJobs();unsubscribeJobs=null;}
+    if(unsubscribeStores){unsubscribeStores();unsubscribeStores=null;}
+    return;
   }
+
+  const isAdmin = user.email === ADMIN_EMAIL;
+  if(!isAdmin){
+    const meta = await getDoc(doc(db,'storeRegistry',user.uid));
+    if(!meta.exists() || meta.data().active !== true){
+      await signOut(auth);
+      return setMsg($('authMsg'),'Akun toko belum aktif atau sudah dinonaktifkan.');
+    }
+  }
+
   storeCodeCurrent=(user.email?.split('@')[0]||'TOKO').toUpperCase();
   $('activeStore').textContent=storeCodeCurrent;
-  $('authView').classList.add('hidden'); $('appView').classList.remove('hidden'); $('btnLogout').classList.remove('hidden');
+  $('authView').classList.add('hidden'); $('appView').classList.remove('hidden'); $('adminView').classList.add('hidden');
+  $('btnLogout').classList.remove('hidden');
+  $('btnAdmin').classList.toggle('hidden', !isAdmin);
   loadJobs(user);
 });
+
+$('btnAdmin').onclick = () => {
+  $('appView').classList.add('hidden');
+  $('adminView').classList.remove('hidden');
+  loadStores();
+};
+$('btnBackApp').onclick = () => {
+  $('adminView').classList.add('hidden');
+  $('appView').classList.remove('hidden');
+  if(unsubscribeStores){unsubscribeStores();unsubscribeStores=null;}
+};
+
+$('btnAddStore').onclick = async () => {
+  const admin=auth.currentUser;
+  if(!admin || admin.email!==ADMIN_EMAIL) return;
+  const code=$('newStoreCode').value.trim().toUpperCase();
+  const pass=$('newStorePassword').value;
+  if(!/^[A-Z0-9_-]{2,20}$/.test(code)) return setMsg($('adminMsg'),'Kode toko tidak valid.');
+  if(pass.length<6) return setMsg($('adminMsg'),'Password minimal 6 karakter.');
+  $('btnAddStore').disabled=true; $('btnAddStore').textContent='Membuat akun...';
+  let creatorApp=null;
+  try{
+    creatorApp=initializeApp(firebaseConfig,'creator-'+Date.now());
+    const creatorAuth=getAuth(creatorApp);
+    const cred=await createUserWithEmailAndPassword(creatorAuth,codeToEmail(code),pass);
+    await setDoc(doc(db,'storeRegistry',cred.user.uid),{
+      code,email:codeToEmail(code),active:true,createdAt:serverTimestamp(),createdBy:admin.uid
+    });
+    await signOut(creatorAuth);
+    $('newStoreCode').value=''; $('newStorePassword').value='';
+    setMsg($('adminMsg'),`Toko ${code} berhasil dibuat.`,true);
+  }catch(e){ setMsg($('adminMsg'),friendlyError(e)); }
+  finally{
+    if(creatorApp){ try{await deleteApp(creatorApp);}catch(_){} }
+    $('btnAddStore').disabled=false; $('btnAddStore').textContent='Tambah Toko';
+  }
+};
+
+function loadStores(){
+  if(unsubscribeStores) unsubscribeStores();
+  unsubscribeStores=onSnapshot(collection(db,'storeRegistry'),snap=>{
+    const rows=[]; snap.forEach(d=>rows.push({uid:d.id,...d.data()}));
+    rows.sort((a,b)=>(a.code||'').localeCompare(b.code||''));
+    $('storeList').innerHTML = rows.length ? rows.map(storeCard).join('') : '<div class="text-sm text-slate-400">Belum ada toko tambahan.</div>';
+    document.querySelectorAll('[data-toggle-store]').forEach(b=>b.onclick=()=>toggleStore(b.dataset.toggleStore,b.dataset.active==='true'));
+  },err=>setMsg($('adminMsg'),'Gagal membaca daftar toko: '+friendlyError(err)));
+}
+function storeCard(s){
+  return `<div class="border rounded-2xl p-4 flex items-center justify-between gap-3">
+    <div><div class="font-semibold">${esc(s.code||'-')}</div><div class="text-xs text-slate-400">${esc(s.email||'')}</div></div>
+    <button data-toggle-store="${s.uid}" data-active="${s.active===true}" class="px-3 py-2 rounded-xl text-sm ${s.active===true?'bg-emerald-50 text-emerald-700':'bg-slate-100 text-slate-600'}">${s.active===true?'Aktif':'Nonaktif'}</button>
+  </div>`;
+}
+async function toggleStore(uid,isActive){
+  if(!confirm(isActive?'Nonaktifkan toko ini?':'Aktifkan kembali toko ini?')) return;
+  await updateDoc(doc(db,'storeRegistry',uid),{active:!isActive,updatedAt:serverTimestamp()});
+}
 
 $('btnUpload').onclick = async () => {
   const user=auth.currentUser; if(!user) return;

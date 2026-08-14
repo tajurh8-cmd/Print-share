@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Print Share</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body{background:#f8fafc}.card{box-shadow:0 10px 30px rgba(15,23,42,.08)}
+  </style>
+</head>
+<body class="text-slate-800">
+  <div class="min-h-screen">
+    <header class="bg-orange-500 text-white px-4 py-4 sticky top-0 z-20 shadow">
+      <div class="max-w-5xl mx-auto flex items-center justify-between">
+        <div><div class="font-bold text-xl">🖨️ Print Share</div><div class="text-xs text-orange-100">Antrean dokumen toko</div></div>
+        <button id="btnLogout" class="hidden bg-white/15 px-3 py-2 rounded-xl text-sm">Logout</button>
+      </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto p-4">
+      <section id="authView" class="max-w-md mx-auto mt-8 bg-white rounded-2xl p-5 card">
+        <h1 class="text-xl font-bold">Login Toko</h1>
+        <p class="text-sm text-slate-500 mt-1">Gunakan kode toko dan password yang sama untuk semua personel toko.</p>
+        <div class="mt-5 space-y-3">
+          <input id="storeCode" class="w-full border rounded-xl px-4 py-3 uppercase" placeholder="Kode toko, contoh B378" />
+          <input id="storePassword" type="password" class="w-full border rounded-xl px-4 py-3" placeholder="Password" />
+          <button id="btnLogin" class="w-full bg-orange-500 text-white font-semibold py-3 rounded-xl">Login</button>
+          <button id="btnRegister" class="w-full border border-orange-500 text-orange-600 font-semibold py-3 rounded-xl">Daftarkan Toko Pertama Kali</button>
+          <div id="authMsg" class="text-sm"></div>
+        </div>
+      </section>
+
+      <section id="appView" class="hidden space-y-4">
+        <div class="bg-white rounded-2xl p-4 card flex items-center justify-between">
+          <div><div class="text-xs text-slate-500">Toko aktif</div><div id="activeStore" class="font-bold text-lg"></div></div>
+          <div id="queueCount" class="text-sm bg-orange-50 text-orange-700 px-3 py-2 rounded-xl">0 antrean</div>
+        </div>
+
+        <div class="grid lg:grid-cols-2 gap-4">
+          <section class="bg-white rounded-2xl p-5 card">
+            <h2 class="font-bold text-lg">Upload Dokumen</h2>
+            <div class="mt-4 space-y-3">
+              <input id="senderName" class="w-full border rounded-xl px-4 py-3" placeholder="Nama pengirim" />
+              <input id="docFile" type="file" class="w-full border rounded-xl px-3 py-3" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png" />
+              <div class="grid grid-cols-3 gap-2">
+                <input id="copies" type="number" min="1" value="1" class="border rounded-xl px-3 py-3" />
+                <select id="paper" class="border rounded-xl px-3 py-3"><option>A4</option><option>F4</option></select>
+                <select id="orientation" class="border rounded-xl px-3 py-3"><option>Portrait</option><option>Landscape</option></select>
+              </div>
+              <textarea id="note" class="w-full border rounded-xl px-4 py-3" rows="2" placeholder="Catatan (opsional)"></textarea>
+              <button id="btnUpload" class="w-full bg-orange-500 text-white font-semibold py-3 rounded-xl">Kirim ke Antrean</button>
+              <div id="uploadMsg" class="text-sm"></div>
+            </div>
+          </section>
+
+          <section class="bg-white rounded-2xl p-5 card">
+            <div class="flex items-center justify-between"><h2 class="font-bold text-lg">Antrean Print</h2><button id="btnRefresh" class="text-sm text-orange-600">Refresh</button></div>
+            <div id="queueList" class="mt-4 space-y-3"></div>
+          </section>
+        </div>
+
+        <section class="bg-white rounded-2xl p-5 card">
+          <h2 class="font-bold text-lg">Riwayat Selesai</h2>
+          <div id="historyList" class="mt-4 space-y-3"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, getDoc, collection, addDoc, updateDoc, deleteDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBoUcM7tTZkjNnRmELDe_nxPuSJka4jbqE",
+  authDomain: "print-share-33664.firebaseapp.com",
+  projectId: "print-share-33664",
+  storageBucket: "print-share-33664.firebasestorage.app",
+  messagingSenderId: "894530683233",
+  appId: "1:894530683233:web:f5d23aedacc91e4d5ac520"
+};
+
+const SUPABASE_URL = "https://ictglhrchhhxjqmdyndo.supabase.co";
+const SUPABASE_KEY = "sb_publishable_rzCUR7Bm3MesF0L66271rQ_u82GCIkr";
+const BUCKET = "print-files";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = id => document.getElementById(id);
+let unsubscribeJobs = null;
+let storeCodeCurrent = "";
+
+function codeToEmail(code){ return `${code.trim().toLowerCase()}@printshare.local`; }
+function safeFileName(name){ return name.replace(/[^a-zA-Z0-9._-]/g, "_"); }
+function setMsg(el, text, ok=false){ el.textContent=text; el.className=`text-sm ${ok?'text-emerald-600':'text-red-600'}`; }
+function esc(s=''){ return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+
+$('btnRegister').onclick = async () => {
+  const code=$('storeCode').value.trim().toUpperCase(); const pass=$('storePassword').value;
+  if(!code || pass.length<6) return setMsg($('authMsg'),'Kode toko wajib diisi dan password minimal 6 karakter.');
+  try{
+    const cred=await createUserWithEmailAndPassword(auth, codeToEmail(code), pass);
+    await setDoc(doc(db,'stores',cred.user.uid),{storeCode:code,createdAt:serverTimestamp()});
+    setMsg($('authMsg'),'Toko berhasil didaftarkan.',true);
+  }catch(e){ setMsg($('authMsg'), friendlyError(e)); }
+};
+
+$('btnLogin').onclick = async () => {
+  const code=$('storeCode').value.trim().toUpperCase(); const pass=$('storePassword').value;
+  if(!code || !pass) return setMsg($('authMsg'),'Isi kode toko dan password.');
+  try{ await signInWithEmailAndPassword(auth, codeToEmail(code), pass); }
+  catch(e){ setMsg($('authMsg'), friendlyError(e)); }
+};
+
+$('btnLogout').onclick = () => signOut(auth);
+$('btnRefresh').onclick = () => loadJobs(auth.currentUser);
+
+function friendlyError(e){
+  const c=e?.code||'';
+  if(c.includes('email-already-in-use')) return 'Kode toko sudah terdaftar.';
+  if(c.includes('invalid-credential')) return 'Kode toko atau password salah.';
+  if(c.includes('weak-password')) return 'Password minimal 6 karakter.';
+  if(c.includes('permission-denied')) return 'Akses ditolak. Cek Firestore Rules.';
+  return e?.message || 'Terjadi kesalahan.';
+}
+
+onAuthStateChanged(auth, async user => {
+  if(!user){
+    $('authView').classList.remove('hidden'); $('appView').classList.add('hidden'); $('btnLogout').classList.add('hidden');
+    if(unsubscribeJobs){unsubscribeJobs();unsubscribeJobs=null;} return;
+  }
+  const storeSnap=await getDoc(doc(db,'stores',user.uid));
+  storeCodeCurrent=storeSnap.exists()?storeSnap.data().storeCode:(user.email?.split('@')[0]||'TOKO').toUpperCase();
+  $('activeStore').textContent=storeCodeCurrent;
+  $('authView').classList.add('hidden'); $('appView').classList.remove('hidden'); $('btnLogout').classList.remove('hidden');
+  loadJobs(user);
+});
+
+$('btnUpload').onclick = async () => {
+  const user=auth.currentUser; if(!user) return;
+  const sender=$('senderName').value.trim(); const file=$('docFile').files[0];
+  if(!sender || !file) return setMsg($('uploadMsg'),'Nama pengirim dan file wajib diisi.');
+  if(file.size>20*1024*1024) return setMsg($('uploadMsg'),'Ukuran file maksimal 20 MB.');
+  $('btnUpload').disabled=true; $('btnUpload').textContent='Mengupload...';
+  try{
+    const objectPath=`${user.uid}/${crypto.randomUUID()}/${safeFileName(file.name)}`;
+    const { error:upErr }=await supabase.storage.from(BUCKET).upload(objectPath,file,{cacheControl:'3600',upsert:false,contentType:file.type||undefined});
+    if(upErr) throw new Error('Upload Storage gagal: '+upErr.message);
+    await addDoc(collection(db,'stores',user.uid,'jobs'),{
+      storeCode:storeCodeCurrent,sender,fileName:file.name,filePath:objectPath,fileSize:file.size,
+      copies:Math.max(1,Number($('copies').value)||1),paper:$('paper').value,orientation:$('orientation').value,
+      note:$('note').value.trim(),status:'QUEUED',createdAt:serverTimestamp(),updatedAt:serverTimestamp()
+    });
+    $('docFile').value=''; $('note').value=''; $('copies').value='1';
+    setMsg($('uploadMsg'),'Dokumen masuk antrean.',true);
+  }catch(e){ setMsg($('uploadMsg'),e.message||'Upload gagal.'); }
+  finally{$('btnUpload').disabled=false;$('btnUpload').textContent='Kirim ke Antrean';}
+};
+
+function loadJobs(user){
+  if(!user) return; if(unsubscribeJobs) unsubscribeJobs();
+  const q=query(collection(db,'stores',user.uid,'jobs'),orderBy('createdAt','desc'));
+  unsubscribeJobs=onSnapshot(q,snap=>{
+    const jobs=[]; snap.forEach(d=>jobs.push({id:d.id,...d.data()})); renderJobs(jobs);
+  },err=>setMsg($('uploadMsg'),'Gagal membaca antrean: '+friendlyError(err)));
+}
+
+function renderJobs(jobs){
+  const active=jobs.filter(x=>x.status!=='DONE'); const done=jobs.filter(x=>x.status==='DONE');
+  $('queueCount').textContent=`${active.length} antrean`;
+  $('queueList').innerHTML=active.length?active.map(jobCard).join(''):'<div class="text-sm text-slate-400">Belum ada antrean.</div>';
+  $('historyList').innerHTML=done.length?done.slice(0,30).map(jobCard).join(''):'<div class="text-sm text-slate-400">Belum ada riwayat.</div>';
+  document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openFile(b.dataset.open));
+  document.querySelectorAll('[data-printing]').forEach(b=>b.onclick=()=>changeStatus(b.dataset.printing,'PRINTING'));
+  document.querySelectorAll('[data-done]').forEach(b=>b.onclick=()=>changeStatus(b.dataset.done,'DONE'));
+  document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>removeJob(b.dataset.delete,b.dataset.path));
+}
+
+function statusLabel(s){return s==='PRINTING'?'SEDANG DICETAK':s==='DONE'?'SELESAI':'MENUNGGU';}
+function jobCard(j){
+  return `<div class="border rounded-2xl p-4">
+    <div class="flex justify-between gap-2"><div class="font-semibold break-all">${esc(j.fileName)}</div><span class="text-xs bg-slate-100 px-2 py-1 rounded-lg h-fit">${statusLabel(j.status)}</span></div>
+    <div class="text-sm text-slate-500 mt-1">${esc(j.sender)} • ${j.copies} copy • ${esc(j.paper)} • ${esc(j.orientation)}</div>
+    ${j.note?`<div class="text-sm mt-2">Catatan: ${esc(j.note)}</div>`:''}
+    <div class="flex flex-wrap gap-2 mt-3">
+      <button data-open="${esc(j.filePath)}" class="px-3 py-2 rounded-xl bg-slate-900 text-white text-sm">Buka File</button>
+      ${j.status==='QUEUED'?`<button data-printing="${j.id}" class="px-3 py-2 rounded-xl border text-sm">Dicetak</button>`:''}
+      ${j.status!=='DONE'?`<button data-done="${j.id}" class="px-3 py-2 rounded-xl bg-orange-500 text-white text-sm">Selesai</button>`:''}
+      <button data-delete="${j.id}" data-path="${esc(j.filePath)}" class="px-3 py-2 rounded-xl text-red-600 text-sm">Hapus</button>
+    </div>
+  </div>`;
+}
+
+async function openFile(path){
+  const {data,error}=await supabase.storage.from(BUCKET).createSignedUrl(path,120);
+  if(error) return alert('Tidak bisa membuka file: '+error.message);
+  window.open(data.signedUrl,'_blank','noopener');
+}
+async function changeStatus(id,status){
+  const u=auth.currentUser; if(!u) return;
+  await updateDoc(doc(db,'stores',u.uid,'jobs',id),{status,updatedAt:serverTimestamp()});
+}
+async function removeJob(id,path){
+  if(!confirm('Hapus dokumen ini?')) return;
+  const u=auth.currentUser; if(!u) return;
+  const {error}=await supabase.storage.from(BUCKET).remove([path]);
+  if(error) return alert('Gagal menghapus file: '+error.message);
+  await deleteDoc(doc(db,'stores',u.uid,'jobs',id));
+}
+</script>
+</body>
+</html>

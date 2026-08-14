@@ -27,7 +27,6 @@
           <input id="storeCode" class="w-full border rounded-xl px-4 py-3 uppercase" placeholder="Kode toko, contoh B378" />
           <input id="storePassword" type="password" class="w-full border rounded-xl px-4 py-3" placeholder="Password" />
           <button id="btnLogin" class="w-full bg-orange-500 text-white font-semibold py-3 rounded-xl">Login</button>
-          <button id="btnRegister" class="w-full border border-orange-500 text-orange-600 font-semibold py-3 rounded-xl">Daftarkan Toko Pertama Kali</button>
           <div id="authMsg" class="text-sm"></div>
         </div>
       </section>
@@ -71,8 +70,8 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-import { getFirestore, doc, setDoc, getDoc, collection, addDoc, updateDoc, deleteDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { getFirestore, doc, collection, addDoc, updateDoc, deleteDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBoUcM7tTZkjNnRmELDe_nxPuSJka4jbqE",
@@ -96,20 +95,10 @@ const $ = id => document.getElementById(id);
 let unsubscribeJobs = null;
 let storeCodeCurrent = "";
 
-function codeToEmail(code){ return `${code.trim().toLowerCase()}@printshare.local`; }
+function codeToEmail(code){ return `${code.trim().toLowerCase()}@printshare.app`; }
 function safeFileName(name){ return name.replace(/[^a-zA-Z0-9._-]/g, "_"); }
 function setMsg(el, text, ok=false){ el.textContent=text; el.className=`text-sm ${ok?'text-emerald-600':'text-red-600'}`; }
 function esc(s=''){ return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
-
-$('btnRegister').onclick = async () => {
-  const code=$('storeCode').value.trim().toUpperCase(); const pass=$('storePassword').value;
-  if(!code || pass.length<6) return setMsg($('authMsg'),'Kode toko wajib diisi dan password minimal 6 karakter.');
-  try{
-    const cred=await createUserWithEmailAndPassword(auth, codeToEmail(code), pass);
-    await setDoc(doc(db,'stores',cred.user.uid),{storeCode:code,createdAt:serverTimestamp()});
-    setMsg($('authMsg'),'Toko berhasil didaftarkan.',true);
-  }catch(e){ setMsg($('authMsg'), friendlyError(e)); }
-};
 
 $('btnLogin').onclick = async () => {
   const code=$('storeCode').value.trim().toUpperCase(); const pass=$('storePassword').value;
@@ -135,8 +124,7 @@ onAuthStateChanged(auth, async user => {
     $('authView').classList.remove('hidden'); $('appView').classList.add('hidden'); $('btnLogout').classList.add('hidden');
     if(unsubscribeJobs){unsubscribeJobs();unsubscribeJobs=null;} return;
   }
-  const storeSnap=await getDoc(doc(db,'stores',user.uid));
-  storeCodeCurrent=storeSnap.exists()?storeSnap.data().storeCode:(user.email?.split('@')[0]||'TOKO').toUpperCase();
+  storeCodeCurrent=(user.email?.split('@')[0]||'TOKO').toUpperCase();
   $('activeStore').textContent=storeCodeCurrent;
   $('authView').classList.add('hidden'); $('appView').classList.remove('hidden'); $('btnLogout').classList.remove('hidden');
   loadJobs(user);
